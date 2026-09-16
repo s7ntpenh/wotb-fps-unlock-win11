@@ -4,7 +4,7 @@
 
 **Lifts the 120 FPS ceiling in World of Tanks Blitz — and fixes the camera bug that shows up once it's gone.**
 
-[![Release](https://img.shields.io/github/v/release/s7ntpenh/wotb-fps-unlock?style=flat-square&color=f0a030)](../../releases/latest)
+[![Release](https://img.shields.io/github/v/release/s7ntpenh/wotb-fps-unlock-win11?style=flat-square&color=f0a030)](../../releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows-0078d4?style=flat-square)](#)
 [![Steam](https://img.shields.io/badge/Steam-app%20444200-1b2838?style=flat-square)](https://store.steampowered.com/app/444200/)
