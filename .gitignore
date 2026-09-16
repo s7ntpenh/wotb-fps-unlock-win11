@@ -1,0 +1,12 @@
+# build output - the released .exe is attached to GitHub Releases instead
+bin/
+
+# what the patcher leaves inside the game folder
+BlitzFpsUnlock.backup/
+
+# editors / OS
+.vs/
+*.user
+*.suo
+Thumbs.db
+desktop.ini
