@@ -15,11 +15,14 @@ New-Item -ItemType Directory -Force $bin | Out-Null
 
 # --- GUI ---------------------------------------------------------------------
 $gui = Join-Path $bin 'WotbFpsUnlock.exe'
-$sources = @('Program.cs', 'MainForm.cs', 'Patcher.cs') |
+$sources = @('Program.cs', 'MainForm.cs', 'Theme.cs', 'FpsSlider.cs', 'Patcher.cs') |
     ForEach-Object { Join-Path $PSScriptRoot "src\$_" }
+$ico = Join-Path $PSScriptRoot 'src\app.ico'
+$png = Join-Path $PSScriptRoot 'src\app128.png'
 
 & $csc /nologo /optimize+ /target:winexe /platform:anycpu `
     /r:System.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll `
+    "/win32icon:$ico" "/resource:$ico,app.ico" "/resource:$png,app128.png" `
     "/out:$gui" $sources
 if ($LASTEXITCODE -ne 0) { throw "GUI build failed." }
 Write-Host "built -> $gui" -ForegroundColor Green

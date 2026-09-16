@@ -1,9 +1,15 @@
-// MainForm.cs - the whole UI. Built by hand rather than by a designer so the layout
-// stays readable in source and the project needs nothing but csc.exe to build.
+// MainForm.cs - the whole UI, laid out in code so the project needs nothing but the
+// C# compiler that ships with Windows.
+//
+// Disabling VSync and fixing the camera are not offered as choices: without the first
+// the refresh rate stays the ceiling, and without the second the camera turns syrupy
+// the moment the ceiling is gone. Both are simply part of unlocking the frame rate.
 
 using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.IO;
+using System.Reflection;
 using System.Windows.Forms;
 
 namespace WotbFpsUnlock
@@ -11,14 +17,12 @@ namespace WotbFpsUnlock
     public class MainForm : Form
     {
         string gamePath;
-        bool syncing;   // guards the slider <-> spinner round trip
 
-        Label lblPath, lblState;
-        NumericUpDown numFps;
-        TrackBar barFps;
-        CheckBox chkVSync, chkCamera;
+        Label lblPath, lblState, lblFps;
+        FpsSlider slider;
         Button btnApply, btnRestore, btnLaunch;
         TextBox txtLog;
+        Color stateDot = Theme.Muted;
 
         public MainForm()
         {
@@ -26,125 +30,193 @@ namespace WotbFpsUnlock
             FormBorderStyle = FormBorderStyle.FixedSingle;
             MaximizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
-            ClientSize = new Size(470, 405);
-            Font = new Font("Segoe UI", 9f);
+            ClientSize = new Size(462, 428);
+            BackColor = Theme.Bg;
+            ForeColor = Theme.Text;
+            Font = Theme.UI(9f, FontStyle.Regular);
+            LoadAppIcon();
 
-            BuildGameBox();
-            BuildOptionsBox();
+            BuildHeader();
+            BuildGameCard();
+            BuildFpsCard();
             BuildButtons();
             BuildLog();
 
             Load += delegate { Detect(); };
         }
 
-        // ------------------------------------------------------------- layout --
-        void BuildGameBox()
+        Bitmap logo;
+
+        void LoadAppIcon()
         {
-            var box = new GroupBox { Text = "Game", Location = new Point(12, 8), Size = new Size(446, 78) };
+            var asm = Assembly.GetExecutingAssembly();
+            try
+            {
+                Stream s = asm.GetManifestResourceStream("app.ico");
+                if (s != null) Icon = new Icon(s);
+            }
+            catch { }
+            try
+            {
+                // Icon.ToBitmap() mangles PNG-compressed .ico entries, so the header
+                // draws from a plain PNG instead.
+                Stream s = asm.GetManifestResourceStream("app128.png");
+                if (s != null) logo = new Bitmap(s);
+            }
+            catch { }
+        }
+
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+        static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            // Dark title bar on Windows 10 20H1+ / 11. Older builds used attribute 19,
+            // and anything that does not know either simply returns an error.
+            int on = 1;
+            if (DwmSetWindowAttribute(Handle, 20, ref on, sizeof(int)) != 0)
+                DwmSetWindowAttribute(Handle, 19, ref on, sizeof(int));
+        }
+
+        // ------------------------------------------------------------- layout --
+        void BuildHeader()
+        {
+            var header = new Panel
+            {
+                Bounds = new Rectangle(0, 0, ClientSize.Width, 64),
+                BackColor = Theme.Panel
+            };
+            header.Paint += delegate(object s, PaintEventArgs e)
+            {
+                using (var p = new Pen(Theme.Border))
+                    e.Graphics.DrawLine(p, 0, header.Height - 1, header.Width, header.Height - 1);
+                using (var p = new Pen(Theme.Accent, 3f))
+                    e.Graphics.DrawLine(p, 0, 0, header.Width, 0);
+
+                if (logo != null)
+                {
+                    e.Graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                    e.Graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+                    e.Graphics.DrawImage(logo, new Rectangle(16, 12, 40, 40));
+                }
+            };
+
+            header.Controls.Add(new Label
+            {
+                Text = "WoT Blitz FPS Unlocker",
+                Location = new Point(68, 13),
+                Size = new Size(320, 24),
+                ForeColor = Theme.Text,
+                Font = Theme.UI(13f, FontStyle.Bold),
+                BackColor = Color.Transparent
+            });
+            header.Controls.Add(new Label
+            {
+                Text = "Steam  ·  app 444200",
+                Location = new Point(70, 37),
+                Size = new Size(320, 16),
+                ForeColor = Theme.Muted,
+                Font = Theme.UI(8f, FontStyle.Regular),
+                BackColor = Color.Transparent
+            });
+
+            Controls.Add(header);
+        }
+
+        void BuildGameCard()
+        {
+            Panel card = Theme.MakeCard("Game", new Rectangle(18, 98, 426, 76), this);
 
             lblPath = new Label
             {
-                Location = new Point(12, 22),
-                Size = new Size(330, 17),
-                Text = "searching...",
-                AutoEllipsis = true
+                Location = new Point(14, 12),
+                Size = new Size(300, 17),
+                ForeColor = Theme.Text,
+                AutoEllipsis = true,
+                BackColor = Color.Transparent,
+                Text = "searching..."
             };
+
             lblState = new Label
             {
-                Location = new Point(12, 46),
-                Size = new Size(420, 19),
+                Location = new Point(26, 38),
+                Size = new Size(380, 19),
+                ForeColor = Theme.Muted,
+                BackColor = Color.Transparent,
                 Text = ""
             };
-            var btnBrowse = new Button { Text = "Change...", Location = new Point(352, 18), Size = new Size(82, 25) };
-            btnBrowse.Click += delegate { Browse(); };
 
-            box.Controls.AddRange(new Control[] { lblPath, lblState, btnBrowse });
-            Controls.Add(box);
+            // status dot, drawn next to lblState
+            card.Paint += delegate(object s, PaintEventArgs e)
+            {
+                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                using (var b = new SolidBrush(stateDot))
+                    e.Graphics.FillEllipse(b, 14, 44, 8, 8);
+            };
+
+            Button change = Theme.MakeButton("Change", new Rectangle(330, 9, 82, 26), false);
+            change.Click += delegate { Browse(); };
+
+            card.Controls.AddRange(new Control[] { lblPath, lblState, change });
         }
 
-        void BuildOptionsBox()
+        void BuildFpsCard()
         {
-            var box = new GroupBox { Text = "Options", Location = new Point(12, 92), Size = new Size(446, 132) };
+            Panel card = Theme.MakeCard("FPS limit", new Rectangle(18, 200, 426, 84), this);
 
-            box.Controls.Add(new Label { Text = "FPS limit:", Location = new Point(12, 26), Size = new Size(64, 17) });
-
-            numFps = new NumericUpDown
+            lblFps = new Label
             {
-                Location = new Point(80, 23),
-                Size = new Size(72, 23),
+                Location = new Point(14, 8),
+                Size = new Size(140, 32),
+                ForeColor = Theme.Accent,
+                Font = Theme.UI(19f, FontStyle.Bold),
+                BackColor = Color.Transparent,
+                Text = "1000"
+            };
+            var unit = new Label
+            {
+                Location = new Point(16, 42),
+                Size = new Size(160, 15),
+                ForeColor = Theme.Muted,
+                Font = Theme.UI(7.5f, FontStyle.Regular),
+                BackColor = Color.Transparent,
+                Text = "frames per second"
+            };
+
+            slider = new FpsSlider
+            {
+                Bounds = new Rectangle(150, 30, 260, 28),
+                BackColor = Theme.Panel,
                 Minimum = Patcher.MinFps,
                 Maximum = Patcher.MaxFps,
-                Increment = 10,
                 Value = 1000
             };
-            numFps.ValueChanged += delegate
+            slider.ValueChanged += delegate { lblFps.Text = slider.Value.ToString(); };
+
+            var hint = new Label
             {
-                if (syncing) return;
-                syncing = true;
-                barFps.Value = (int)numFps.Value;
-                syncing = false;
+                Location = new Point(150, 60),
+                Size = new Size(262, 15),
+                ForeColor = Theme.Muted,
+                Font = Theme.UI(7.5f, FontStyle.Regular),
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleRight,
+                Text = Patcher.MinFps + " – " + Patcher.MaxFps + "   (wheel / arrows to fine-tune)"
             };
 
-            barFps = new TrackBar
-            {
-                Location = new Point(160, 20),
-                Size = new Size(274, 45),
-                Minimum = Patcher.MinFps,
-                Maximum = Patcher.MaxFps,
-                TickFrequency = 120,
-                LargeChange = 60,
-                Value = 1000
-            };
-            barFps.ValueChanged += delegate
-            {
-                if (syncing) return;
-                syncing = true;
-                numFps.Value = barFps.Value;
-                syncing = false;
-            };
-
-            chkVSync = new CheckBox
-            {
-                Text = "Disable VSync - go past the refresh rate (tearing)",
-                Location = new Point(14, 68),
-                Size = new Size(424, 20),
-                Checked = true
-            };
-            chkCamera = new CheckBox
-            {
-                Text = "Fix camera smoothing above ~200 FPS",
-                Location = new Point(14, 94),
-                Size = new Size(424, 20),
-                Checked = true
-            };
-
-            var tips = new ToolTip { AutoPopDelay = 15000 };
-            tips.SetToolTip(chkVSync,
-                "The client hard-enables VSync and hides the setting, so the monitor's\r\n" +
-                "refresh rate is the real ceiling. This calls Present with SyncInterval 0.\r\n" +
-                "Frames stop lining up with the display, so expect tearing.");
-            tips.SetToolTip(chkCamera,
-                "Stock camera smoothing quantises frame time to 10 ms. Above ~200 FPS a\r\n" +
-                "frame is under 5 ms, that rounds to zero, and the smoothing factor drops\r\n" +
-                "onto its 0.01 floor - the camera turns syrupy. This widens the quantum\r\n" +
-                "to 0.01 ms so smoothing tracks the real frame rate.");
-            tips.SetToolTip(barFps,
-                "What the rightmost option in the game's FPS menu delivers.\r\n" +
-                "The label there still reads 120 - that text is the enum name.");
-
-            box.Controls.AddRange(new Control[] { numFps, barFps, chkVSync, chkCamera });
-            Controls.Add(box);
+            card.Controls.AddRange(new Control[] { lblFps, unit, slider, hint });
         }
 
         void BuildButtons()
         {
-            btnApply = new Button { Text = "Apply", Location = new Point(12, 232), Size = new Size(140, 32) };
+            btnApply = Theme.MakeButton("Apply", new Rectangle(18, 300, 158, 38), true);
             btnApply.Click += delegate { Apply(); };
 
-            btnRestore = new Button { Text = "Restore original", Location = new Point(160, 232), Size = new Size(140, 32) };
+            btnRestore = Theme.MakeButton("Restore original", new Rectangle(186, 300, 130, 38), false);
             btnRestore.Click += delegate { Restore(); };
 
-            btnLaunch = new Button { Text = "Launch game", Location = new Point(318, 232), Size = new Size(140, 32) };
+            btnLaunch = Theme.MakeButton("Launch game", new Rectangle(326, 300, 118, 38), false);
             btnLaunch.Click += delegate { Launch(); };
 
             Controls.AddRange(new Control[] { btnApply, btnRestore, btnLaunch });
@@ -154,12 +226,13 @@ namespace WotbFpsUnlock
         {
             txtLog = new TextBox
             {
-                Location = new Point(12, 274),
-                Size = new Size(446, 118),
+                Bounds = new Rectangle(18, 350, 426, 62),
                 Multiline = true,
                 ReadOnly = true,
                 ScrollBars = ScrollBars.Vertical,
-                BackColor = SystemColors.Window,
+                BorderStyle = BorderStyle.FixedSingle,
+                BackColor = Theme.Panel,
+                ForeColor = Theme.Muted,
                 Font = new Font("Consolas", 8.5f)
             };
             Controls.Add(txtLog);
@@ -171,20 +244,28 @@ namespace WotbFpsUnlock
             txtLog.AppendText(line + Environment.NewLine);
         }
 
+        void SetState(string text, Color dot, Color fore)
+        {
+            lblState.Text = text;
+            lblState.ForeColor = fore;
+            stateDot = dot;
+            lblState.Parent.Invalidate();
+        }
+
         void Detect()
         {
             gamePath = Patcher.FindGamePath();
             if (gamePath == null)
             {
                 lblPath.Text = "not found";
-                lblState.Text = "Pick the folder that holds wotblitz.exe.";
+                SetState("Pick the folder that holds wotblitz.exe", Theme.Bad, Theme.Bad);
                 Log("World of Tanks Blitz was not found in any Steam library.");
                 SetEnabled(false);
                 return;
             }
             lblPath.Text = gamePath;
             Log("Found: " + gamePath);
-            Refresh_();
+            RefreshState();
         }
 
         void Browse()
@@ -202,7 +283,7 @@ namespace WotbFpsUnlock
                 gamePath = dlg.SelectedPath;
                 lblPath.Text = gamePath;
                 Log("Using: " + gamePath);
-                Refresh_();
+                RefreshState();
             }
         }
 
@@ -210,13 +291,10 @@ namespace WotbFpsUnlock
         {
             btnApply.Enabled = on;
             btnRestore.Enabled = on;
-            numFps.Enabled = on;
-            barFps.Enabled = on;
-            chkVSync.Enabled = on;
-            chkCamera.Enabled = on;
+            slider.Enabled = on;
         }
 
-        void Refresh_()
+        void RefreshState()
         {
             try
             {
@@ -224,15 +302,13 @@ namespace WotbFpsUnlock
 
                 if (st.Fps == FpsState.Ambiguous)
                 {
-                    lblState.Text = "Signature matched more than once - not safe to patch.";
-                    lblState.ForeColor = Color.Firebrick;
+                    SetState("Signature matched more than once - not safe to patch", Theme.Bad, Theme.Bad);
                     SetEnabled(false);
                     return;
                 }
                 if (!st.Recognised)
                 {
-                    lblState.Text = "Unrecognised build - signatures need refreshing.";
-                    lblState.ForeColor = Color.Firebrick;
+                    SetState("Unrecognised build - signatures need refreshing", Theme.Bad, Theme.Bad);
                     SetEnabled(false);
                     return;
                 }
@@ -240,30 +316,18 @@ namespace WotbFpsUnlock
                 SetEnabled(true);
                 if (st.Fps == FpsState.Patched)
                 {
-                    lblState.ForeColor = Color.ForestGreen;
-                    lblState.Text = string.Format("Patched: {0} FPS, VSync {1}, camera {2}",
-                        st.FpsValue,
-                        st.VSync == ToggleState.Changed ? "off" : "stock",
-                        st.Camera == ToggleState.Changed ? "fixed" : "stock");
-
-                    syncing = true;
-                    int v = Math.Max(Patcher.MinFps, Math.Min(Patcher.MaxFps, st.FpsValue));
-                    numFps.Value = v;
-                    barFps.Value = v;
-                    syncing = false;
-                    chkVSync.Checked = st.VSync == ToggleState.Changed;
-                    chkCamera.Checked = st.Camera == ToggleState.Changed;
+                    SetState("Unlocked at " + st.FpsValue + " FPS", Theme.Good, Theme.Good);
+                    slider.Value = Math.Max(Patcher.MinFps, Math.Min(Patcher.MaxFps, st.FpsValue));
+                    lblFps.Text = slider.Value.ToString();
                 }
                 else
                 {
-                    lblState.ForeColor = SystemColors.ControlText;
-                    lblState.Text = "Stock: the top menu option gives 120 FPS.";
+                    SetState("Stock - the game caps at 120 FPS", Theme.Muted, Theme.Muted);
                 }
             }
             catch (Exception ex)
             {
-                lblState.Text = "Could not read the game.";
-                lblState.ForeColor = Color.Firebrick;
+                SetState("Could not read the game", Theme.Bad, Theme.Bad);
                 Log("Error: " + ex.Message);
                 SetEnabled(false);
             }
@@ -274,10 +338,10 @@ namespace WotbFpsUnlock
             if (!EnsureWritable()) return;
             try
             {
-                Patcher.Apply(gamePath, (int)numFps.Value, chkVSync.Checked, chkCamera.Checked, Log);
-                Refresh_();
-                Log("In game: Settings -> Graphics -> Frames per second -> rightmost option.");
-                Log("It still reads 120 (that label is the enum name) but delivers " + (int)numFps.Value + ".");
+                Patcher.Apply(gamePath, slider.Value, true, true, Log);
+                RefreshState();
+                Log("In game: Settings > Graphics > Frames per second > rightmost option.");
+                Log("It still reads 120 - that label is the enum name - but gives " + slider.Value + ".");
             }
             catch (Exception ex)
             {
@@ -292,7 +356,7 @@ namespace WotbFpsUnlock
             try
             {
                 Patcher.Restore(gamePath, Log);
-                Refresh_();
+                RefreshState();
             }
             catch (Exception ex)
             {
@@ -307,7 +371,7 @@ namespace WotbFpsUnlock
             catch (Exception ex) { Log("Error: " + ex.Message); }
         }
 
-        // Steam libraries under Program Files need elevation; offer it instead of
+        // Steam libraries under Program Files need elevation; offer it rather than
         // failing with a bare "access denied".
         bool EnsureWritable()
         {
