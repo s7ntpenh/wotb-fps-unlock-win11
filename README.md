@@ -6,7 +6,7 @@
 
 [![Release](https://img.shields.io/github/v/release/s7ntpenh/wotb-fps-unlock-win11?style=flat-square&color=f0a030)](../../releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows-0078d4?style=flat-square)](#)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078d4?style=flat-square)](#-linux--steam-deck)
 [![Steam](https://img.shields.io/badge/Steam-app%20444200-1b2838?style=flat-square)](https://store.steampowered.com/app/444200/)
 
 ![screenshot](docs/screenshot.png)
@@ -23,6 +23,7 @@
   - [1. The FPS ceiling](#1-the-fps-ceiling)
   - [2. VSync](#2-vsync)
   - [3. Camera smoothing](#3-camera-smoothing)
+- [🐧 Linux / Steam Deck](#-linux--steam-deck)
 - [💻 Command line](#-command-line)
 - [🛠 Building from source](#-building-from-source)
 - [📦 What's in the repo](#-whats-in-the-repo)
@@ -224,9 +225,47 @@ value behind it is real.
 
 ---
 
+## 🐧 Linux / Steam Deck
+
+Blitz has no native Linux build — it runs under Proton, so the file to patch is still
+the Windows `wotblitz.exe`. The patching itself is plain byte surgery, so all three
+fixes apply unchanged. [`wotb-fps-unlock.py`](wotb-fps-unlock.py) is a single-file
+Python 3 port with the same GUI:
+
+<div align="center">
+
+![linux screenshot](docs/screenshot-linux.png)
+
+</div>
+
+```bash
+chmod +x wotb-fps-unlock.py
+./wotb-fps-unlock.py                 # GUI
+./wotb-fps-unlock.py --status        # or drive it from the shell
+./wotb-fps-unlock.py --fps 1000
+./wotb-fps-unlock.py --restore
+```
+
+Python 3 only, standard library only — nothing to install. The GUI needs `tkinter`,
+which some distributions split into a separate package (`sudo apt install python3-tk`
+on Debian/Ubuntu, `sudo pacman -S tk` on Arch). Without it the tool falls back to the
+command line and says so.
+
+It looks for Steam in the usual places, including Flatpak
+(`~/.var/app/com.valvesoftware.Steam`), Snap, and every library listed in
+`libraryfolders.vdf` — so a Steam Deck's SD card is found too. `--game-path` overrides
+the search. Since Proton runs the exe through Wine, "is the game running?" is answered
+by scanning `/proc` for the executable name.
+
+> The same script also runs on Windows, where it reads the Steam path from the registry.
+> Handy if you would rather not run a compiled binary.
+
+Verified against the real client: patching from Python produces a **byte-identical**
+executable to the Windows build, and restore returns the original SHA-256.
+
 ## 💻 Command line
 
-The same logic without the GUI:
+The Windows build has a PowerShell equivalent too:
 
 ```powershell
 .\Unlock-BlitzFPS.ps1 -Status                     # show current state
@@ -261,7 +300,8 @@ Visual Studio, nothing to install.**
 | `src/Patcher.cs` | all the logic: game discovery, signatures, patch, restore |
 | `src/Dvpl.cs` | `.dvpl` container codec (LZ4 + CRC32 + footer) |
 | `src/Sig.cs` | masked byte-signature search, used by the PowerShell version |
-| `Unlock-BlitzFPS.ps1` | the command-line equivalent |
+| `wotb-fps-unlock.py` | the Linux / cross-platform port, GUI and CLI in one file |
+| `Unlock-BlitzFPS.ps1` | the Windows command-line equivalent |
 | `build.ps1` | builds both binaries |
 
 `dvpl.exe` is useful on its own for digging through the game's configs:

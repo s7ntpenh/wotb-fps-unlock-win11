@@ -10,3 +10,7 @@ BlitzFpsUnlock.backup/
 *.suo
 Thumbs.db
 desktop.ini
+
+# python
+__pycache__/
+*.pyc
