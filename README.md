@@ -350,10 +350,10 @@ dvpl grep   <dir> <text>          decode every .dvpl under a directory and searc
 
 If this saved you an evening of hex-diving, a tip is welcome — entirely optional.
 
-**USDT · TRC-20**
+**USDT · Solana**
 
 ```
-TDJJdAD5MXPzfUvA3wgfrn5TDxFfzMTx36
+2LMBcM1cW5fgMrAD9E9Zr5p66bWuUjPg1RRrVv5vom1G
 ```
 
 > Tron network only. Sending any other asset or using a different network will lose the
